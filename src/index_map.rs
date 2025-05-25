@@ -4,7 +4,7 @@ use core::{
     fmt,
     hash::{BuildHasher, Hash},
     mem,
-    num::NonZeroU32,
+    num::{NonZeroU32, NonZeroU64},
     ops, slice,
 };
 
@@ -66,11 +66,12 @@ use crate::Vec;
 pub type FnvIndexMap<K, V, const N: usize> = IndexMap<K, V, BuildHasherDefault<FnvHasher>, N>;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-struct HashValue(u16);
+struct HashValue(u32);
 
 impl HashValue {
     fn desired_pos(&self, mask: usize) -> usize {
-        usize::from(self.0) & mask
+        assert!(size_of::<usize>() >= size_of::<HashValue>());
+        (self.0 as usize) & mask
     }
 
     fn probe_distance(&self, mask: usize, current: usize) -> usize {
@@ -89,30 +90,30 @@ pub struct Bucket<K, V> {
 #[doc(hidden)]
 #[derive(Clone, Copy, PartialEq)]
 pub struct Pos {
-    // compact representation of `{ hash_value: u16, index: u16 }`
+    // compact representation of `{ hash_value: u32, index: u32 }`
     // To get the most from `NonZero` we store the *value minus 1*. This way `None::Option<Pos>`
     // is equivalent to the very unlikely value of  `{ hash_value: 0xffff, index: 0xffff }` instead
     // the more likely of `{ hash_value: 0x00, index: 0x00 }`
-    nz: NonZeroU32,
+    nz: NonZeroU64,
 }
 
 impl Pos {
     fn new(index: usize, hash: HashValue) -> Self {
         Self {
             nz: unsafe {
-                NonZeroU32::new_unchecked(
-                    ((u32::from(hash.0) << 16) + index as u32).wrapping_add(1),
+                NonZeroU64::new_unchecked(
+                    ((u64::from(hash.0) << 32) + index as u64).wrapping_add(1),
                 )
             },
         }
     }
 
     fn hash(&self) -> HashValue {
-        HashValue((self.nz.get().wrapping_sub(1) >> 16) as u16)
+        HashValue((self.nz.get().wrapping_sub(1) >> 32) as u32)
     }
 
     fn index(&self) -> usize {
-        self.nz.get().wrapping_sub(1) as u16 as usize
+        self.nz.get().wrapping_sub(1) as u32 as usize
     }
 }
 
@@ -1580,7 +1581,7 @@ where
     K: ?Sized + Hash,
     S: BuildHasher,
 {
-    HashValue(build_hasher.hash_one(key) as u16)
+    HashValue(build_hasher.hash_one(key) as u32)
 }
 
 #[cfg(test)]
@@ -1589,7 +1590,7 @@ mod tests {
 
     use static_assertions::assert_not_impl_any;
 
-    use super::{BuildHasherDefault, Entry, FnvIndexMap, IndexMap};
+    use super::{BuildHasherDefault, Entry, FnvIndexMap, HashValue, IndexMap};
 
     // Ensure a `IndexMap` containing `!Send` keys stays `!Send` itself.
     assert_not_impl_any!(IndexMap<*const (), (), BuildHasherDefault<()>, 4>: Send);
@@ -1601,10 +1602,10 @@ mod tests {
         const CAP: usize = 4;
         assert_eq!(
             mem::size_of::<FnvIndexMap<i16, u16, CAP>>(),
-            CAP * mem::size_of::<u32>() + // indices
+            CAP * mem::size_of::<u64>() + // indices
                 CAP * (mem::size_of::<i16>() + // key
                      mem::size_of::<u16>() + // value
-                     mem::size_of::<u16>() // hash
+                     mem::size_of::<HashValue>() // hash
                 ) + // buckets
                 mem::size_of::<usize>() // entries.length
         );
