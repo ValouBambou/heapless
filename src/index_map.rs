@@ -1590,7 +1590,7 @@ mod tests {
 
     use static_assertions::assert_not_impl_any;
 
-    use super::{BuildHasherDefault, Entry, FnvIndexMap, HashValue, IndexMap};
+    use super::{BuildHasherDefault, Entry, FnvIndexMap, HashValue, IndexMap, Pos};
 
     // Ensure a `IndexMap` containing `!Send` keys stays `!Send` itself.
     assert_not_impl_any!(IndexMap<*const (), (), BuildHasherDefault<()>, 4>: Send);
@@ -1602,7 +1602,7 @@ mod tests {
         const CAP: usize = 4;
         assert_eq!(
             mem::size_of::<FnvIndexMap<i16, u16, CAP>>(),
-            CAP * mem::size_of::<u64>() + // indices
+            CAP * mem::size_of::<Option<Pos>>() + // indices
                 CAP * (mem::size_of::<i16>() + // key
                      mem::size_of::<u16>() + // value
                      mem::size_of::<HashValue>() // hash
